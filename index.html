@@ -1,0 +1,304 @@
+<html>
+<meta http-equiv="Content-Type" content="text/html;charset=UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  #root {
+    position: relative;
+    margin: 0 auto;
+    font-family: 'Roboto', 'Helvetica', sans-serif;
+  }
+  @keyframes fontScale {
+    0% { transform: perspective(100px) translateZ(50px); }
+    100% { transform: perspective(100px) translateZ(10px); }
+  }
+  .actionCount {
+    padding: 10px;
+    width: 100px;
+    margin: 0 auto;
+    text-align: center;
+  }
+  .actionCount._update {
+    animation: fontScale .3s;
+  }
+  .win {
+    cursor: pointer;
+    font-size: 5em;
+    text-align: center;
+    width: 100px;
+    height: 100px;
+    position: absolute;
+    left: 50%;
+    top: -50%;
+    transform: translate(-50%, -50%);
+    transition: transform .2s;
+  }
+  .win._show {
+    transform: translate(-50%, 250%);
+  }
+  .win._show:hover {
+    transform: translate(-50%, 250%) scale(1.2);
+  }
+  .board {
+    display: flex;
+    flex-wrap: wrap;
+    border: 1px solid lightskyblue;
+  }
+  .items {
+    position: absolute;
+    top: 0;
+  }
+
+  .cell {
+    font-size: 3em;
+    text-align: center;
+    border: 1px solid lightblue;
+    box-sizing: border-box;
+    background-color: mintcream;
+  }
+  .cell:hover {
+    border: 2px dashed tomato;
+  }
+
+  .obstacle {
+    font-size: 3em;
+    text-align: center;
+    position: absolute;
+    background-color: lightsteelblue;
+    box-sizing: border-box;
+    transition: transform .2s;
+  }
+  .obstacle:hover {
+    border: 3px dashed tomato;
+  }
+  .obstacle._active {
+    border: 3px solid tomato;
+    transform: scale(1.1);
+  }
+  .obstacle.player {
+    background-color: mintcream;
+  }
+</style>
+<div id='root'></div>
+<script>
+  const pairs = [
+    ['🐻', '🍯'],
+    ['🐭', '🧀'],
+    ['🦒', '🌳'],
+    ['🐰', '🥕'],
+    ['🐵', '🍌'],
+    ['🙈', '🍌'],
+    ['🙉', '🍌'],
+    ['🙊', '🍌'],
+    ['🐒', '🍌'],
+    ['🦄', '🌈'],
+    ['🐨', '🎋'],
+    ['🐼', '🎋'],
+    ['🐳', '🌊'],
+    ['🐙', '🌊'],
+    ['🦑', '🌊'],
+    ['🦀', '🌊'],
+    ['🐬', '🌊'],
+    ['🐋', '🌊'],
+    ['🏄‍', '🌊'],
+    ['🦈', '🌪'],
+    ['🦔', '🍄'],
+    ['🐿', '🌰'],
+    ['🤹‍', '🎪'],
+    ['🐐', '⛰'],
+    ['👶', '🍼'],
+    ['👶', '🍼'],
+  ];
+  const root = document.getElementById('root');
+  const portrait = window.innerWidth < window.innerHeight;
+  const ROW_COUNT = portrait ? 7 : 5;
+  const COL_COUNT = portrait ? 5 : 7;
+  const CELL_SIZE = 60;
+  const OBSTACLES_COUNT = (ROW_COUNT * COL_COUNT) / 1;
+
+  class Cell {
+    constructor(container, state, col, row, size, target, incrementActionCount, finishGame) {
+      this.col = col;
+      this.row = row;
+      this.size = size;
+      this.element = document.createElement('div');
+      this.element.classList.add('cell');
+      if (target) {
+        this.element.classList.add('target');
+        this.element.innerText = target;
+      }
+      this.element.style = `width: ${size}; height: ${size};`;
+      this.element.addEventListener('click', e => {
+        const o = state.activeItem;
+        if (o && (
+            (o.row === this.row && Math.abs(o.col - this.col) === 1) ||
+            (o.col === this.col && Math.abs(o.row - this.row) === 1)
+        )) {
+          o.moveTo(this);
+          o.deactivate();
+          incrementActionCount();
+          if (target && o.player) {
+            finishGame();
+          }
+        }
+      });
+      container.appendChild(this.element);
+    }
+  }
+
+  class Obstacle {
+    constructor(container, state, col, row, size, player) {
+      const border = 2;
+      this.state = state;
+      this.player = player;
+      this.border = border;
+      this.col = col;
+      this.row = row;
+      this.tx = 0; // translate x
+      this.ty = 0; // translate y
+      this.size = size;
+      this.active = false;
+      this.baseStyle = `
+        left: ${col * size + border};
+        top: ${row * size + border};
+        width: ${size - border};
+        height: ${size - border};
+      `;
+      this.element = document.createElement('div');
+      this.element.classList.add('obstacle');
+      if (player) {
+        this.element.classList.add('player');
+        this.element.innerText = player;
+      }
+      this.element.style = this.baseStyle;
+      this.element.addEventListener('click', e => {
+        if (state.activeItem && state.activeItem !== this) {
+          state.activeItem.deactivate();
+        }
+
+        if (!this.active) {
+          this.activate();
+        } else {
+          this.deactivate();
+        }
+      });
+      container.appendChild(this.element);
+    }
+    activate() {
+      this.state.activeItem = this;
+      this.active = true;
+      this.element.classList.add('_active');
+    }
+    deactivate() {
+      this.state.activeItem = undefined;
+      this.active = false;
+      this.element.classList.remove('_active');
+    }
+    moveTo(cell) {
+      const { row, col, size, border, tx, ty } = this;
+      const x = col * size + border;
+      const y = row * size + border;
+      const dx = col === cell.col
+          ? 0
+          : cell.col < col
+              ? -size
+              : size;
+      const dy = row === cell.row
+          ? 0
+          : cell.row < row
+              ? -size
+              : size;
+      const newtx = tx + dx;
+      const newty = ty + dy;
+      this.element.style = `
+        ${this.baseStyle}
+        transform: translate(${newtx}px, ${newty}px);
+      `;
+      this.row = cell.row;
+      this.col = cell.col;
+      this.tx = newtx;
+      this.ty = newty;
+    }
+  }
+
+  class Game {
+    constructor() {
+      // TODO: maybe traverse children and remove every node and detach event listener
+      root.innerHTML = '';
+
+      const currentPair = pairs[Math.round(Math.random() * pairs.length)];
+
+      const boardContainer = document.createElement('div');
+      boardContainer.classList.add('board');
+      boardContainer.style = `
+        width: ${CELL_SIZE * COL_COUNT};
+        height: ${CELL_SIZE * ROW_COUNT};
+      `;
+      root.appendChild(boardContainer);
+
+      const itemsContainer = document.createElement('div');
+      itemsContainer.classList.add('items');
+      root.appendChild(itemsContainer);
+
+      const actionCountContainer = document.createElement('div');
+      actionCountContainer.classList.add('actionCount');
+      root.style = `
+        width: ${CELL_SIZE * COL_COUNT};
+        height: ${CELL_SIZE * ROW_COUNT};
+      `;
+      root.appendChild(actionCountContainer);
+
+      const winContainer = document.createElement('div');
+      winContainer.classList.add('win');
+      winContainer.innerText = '👍';
+      winContainer.addEventListener('click', _ => {
+        new Game();
+      });
+      root.appendChild(winContainer);
+
+
+      const state = {
+        activeItem: undefined, // Obstacle | Player
+        actionCount: 0,
+      };
+      function incrementActionCount() {
+        state.actionCount++;
+        actionCountContainer.innerText = state.actionCount;
+        actionCountContainer.classList.add('_update');
+        setTimeout(_ => actionCountContainer.classList.remove('_update'), 300);
+      }
+      function finishGame() {
+        winContainer.classList.add('_show');
+      }
+
+
+      const playerCol = portrait ? Math.floor(COL_COUNT / 2) : 1;
+      const playerRow = portrait ? 1 : Math.floor(ROW_COUNT / 2);
+
+      const targetCol = portrait ? Math.floor(COL_COUNT / 2) : COL_COUNT - 2;
+      const targetRow = portrait ? ROW_COUNT - 2 : Math.floor(ROW_COUNT / 2);
+
+
+      let obstaclesSpawned = 0;
+      const cells = [];
+      const obstacles = [];
+      for (let i = 0; i < ROW_COUNT * COL_COUNT; i++) {
+        const col = (i % COL_COUNT);
+        const row = Math.floor(i / COL_COUNT);
+        const player = col === playerCol && row === playerRow && currentPair[0];
+        const target = col === targetCol && row === targetRow && currentPair[1];
+        cells.push(new Cell(boardContainer, state, col, row, CELL_SIZE, target, incrementActionCount, finishGame));
+
+        if (player) {
+          new Obstacle(itemsContainer, state, col, row, CELL_SIZE, player);
+        } else if (OBSTACLES_COUNT - obstaclesSpawned > 0 && Math.round(Math.random())) {
+          // TODO: actually use obstacles count. Now only random is used
+          obstaclesSpawned++;
+          obstacles.push(new Obstacle(itemsContainer, state, col, row, CELL_SIZE));
+        }
+      }
+    }
+  }
+
+  new Game();
+</script>
+</html>
