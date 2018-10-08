@@ -3,22 +3,27 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
   #root {
+    overflow: hidden;
     position: relative;
     margin: 0 auto;
     font-family: 'Roboto', 'Helvetica', sans-serif;
   }
   @keyframes fontScale {
-    0% { transform: perspective(100px) translateZ(50px); }
-    100% { transform: perspective(100px) translateZ(10px); }
+    0% { opacity: 0; }
+    50% { opacity: 1; }
+    100% { opacity: 0; }
   }
   .actionCount {
-    padding: 10px;
-    width: 100px;
-    margin: 0 auto;
-    text-align: center;
+    color: #555;
+    pointer-events: none;
+    opacity: 0;
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
   }
   .actionCount._update {
-    animation: fontScale .3s;
+    animation: fontScale 3s;
   }
   .win {
     cursor: pointer;
@@ -76,6 +81,7 @@
   }
   .obstacle.player {
     background-color: mintcream;
+    cursor: pointer;
   }
 </style>
 <div id='root'></div>
@@ -93,6 +99,7 @@
     ['🦄', '🌈'],
     ['🐨', '🎋'],
     ['🐼', '🎋'],
+    ['🧟‍', '🧠'],
     ['🐳', '🌊'],
     ['🐙', '🌊'],
     ['🦑', '🌊'],
@@ -107,6 +114,8 @@
     ['🐐', '⛰'],
     ['👶', '🍼'],
     ['👶', '🍼'],
+    ['🤓', '📗'],
+    ['🤴', '👸'],
   ];
   const root = document.getElementById('root');
   const portrait = window.innerWidth < window.innerHeight;
@@ -126,7 +135,11 @@
         this.element.classList.add('target');
         this.element.innerText = target;
       }
-      this.element.style = `width: ${size}; height: ${size};`;
+      const baseStyle = `width: ${size}; height: ${size};`;
+      const startPosition = row % 2
+          ? -COL_COUNT * size
+          : COL_COUNT * size;
+      this.element.style = `${baseStyle} transform: translateX(${startPosition}px);`;
       this.element.addEventListener('click', e => {
         const o = state.activeItem;
         if (o && (
@@ -135,13 +148,24 @@
         )) {
           o.moveTo(this);
           o.deactivate();
-          incrementActionCount();
+          incrementActionCount(o.actionCount, o.actionCountAnimating);
           if (target && o.player) {
             finishGame();
           }
         }
       });
       container.appendChild(this.element);
+
+      requestAnimationFrame(_ => {
+        requestAnimationFrame(_ => {
+          const delay = row % 2
+              ? (COL_COUNT - col + 1) * .1
+              : (col + 1) * .1;
+          this.element.style = `${baseStyle}
+            transform: translateX(0);
+            transition: transform 0.4s cubic-bezier(.17,.84,.44,1) ${delay}s`;
+        });
+      });
     }
   }
 
@@ -169,7 +193,10 @@
         this.element.classList.add('player');
         this.element.innerText = player;
       }
-      this.element.style = this.baseStyle;
+      const startPosition = col % 2
+          ? -ROW_COUNT * size
+          : ROW_COUNT * size;
+      this.element.style = `${this.baseStyle} transform: translateY(${startPosition}px);`;
       this.element.addEventListener('click', e => {
         if (state.activeItem && state.activeItem !== this) {
           state.activeItem.deactivate();
@@ -181,7 +208,25 @@
           this.deactivate();
         }
       });
+      this.actionCount = document.createElement('span');
+      this.actionCount.classList.add('actionCount');
+      this.actionCountAnimating = false;
+      this.actionCount.addEventListener('animationstart', _ => this.this.actionCountAnimating = true);
+      this.actionCount.addEventListener('animationend', _ => this.this.actionCountAnimating = false);
+      this.element.appendChild(this.actionCount);
       container.appendChild(this.element);
+
+      requestAnimationFrame(_ => {
+        requestAnimationFrame(_ => {
+          const cellsAppearanceDelay = COL_COUNT * .1;
+          const delay = col % 2
+              ? (ROW_COUNT - row + 1) * .1
+              : (row + 1) * .1;
+          this.element.style = `${this.baseStyle}
+            transform: translateY(0);
+            transition: transform 0.4s cubic-bezier(.17,.84,.44,1) ${cellsAppearanceDelay + delay}s`;
+        });
+      });
     }
     activate() {
       this.state.activeItem = this;
@@ -225,7 +270,7 @@
       // TODO: maybe traverse children and remove every node and detach event listener
       root.innerHTML = '';
 
-      const currentPair = pairs[Math.round(Math.random() * pairs.length)];
+      const currentPair = pairs[Math.floor(Math.random() * pairs.length)];
 
       const boardContainer = document.createElement('div');
       boardContainer.classList.add('board');
@@ -242,17 +287,15 @@
       const actionCountContainer = document.createElement('div');
       actionCountContainer.classList.add('actionCount');
       root.style = `
-        width: ${CELL_SIZE * COL_COUNT};
-        height: ${CELL_SIZE * ROW_COUNT};
+        width: ${CELL_SIZE * COL_COUNT + 2};
+        height: ${CELL_SIZE * ROW_COUNT + 2};
       `;
       root.appendChild(actionCountContainer);
 
       const winContainer = document.createElement('div');
       winContainer.classList.add('win');
       winContainer.innerText = '👍';
-      winContainer.addEventListener('click', _ => {
-        new Game();
-      });
+      winContainer.addEventListener('click', _ => new Game());
       root.appendChild(winContainer);
 
 
@@ -260,11 +303,13 @@
         activeItem: undefined, // Obstacle | Player
         actionCount: 0,
       };
-      function incrementActionCount() {
+      function incrementActionCount(element, animating) {
         state.actionCount++;
-        actionCountContainer.innerText = state.actionCount;
-        actionCountContainer.classList.add('_update');
-        setTimeout(_ => actionCountContainer.classList.remove('_update'), 300);
+        element.innerText = state.actionCount;
+        if (!animating) {
+          element.classList.add('_update');
+          setTimeout(_ => element.classList.remove('_update'), 3000);
+        }
       }
       function finishGame() {
         winContainer.classList.add('_show');
